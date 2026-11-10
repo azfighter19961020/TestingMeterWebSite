@@ -1,0 +1,192 @@
+[
+	{
+		"DeviceLocation":"總表",
+		"DeviceUniqueName": "RootMeter",
+		"Description": "",
+		"DeviceInfo":{
+			"ModbusCommand":{
+				"deviceID": 1,
+				"functionCode": 3,
+				"registers": [
+					{
+						"address": 1016,
+						"count": 3
+					},
+					{
+						"address": 1022,
+						"count": 3
+					},
+					{
+						"address": 1035,
+						"count": 1
+					},
+					{
+						"address": 1007,
+						"count": 4
+					}				
+				]
+			},
+			"parseInfo": [
+				{
+					"ResolveLocation": 0,
+					"ResolveLength": 1,
+					"DataType": "short",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "rPhaseVoltage"
+				},
+				{
+					"ResolveLocation": 1,
+					"ResolveLength":1,
+					"DataType": "short",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "sPhaseVoltage"
+				},
+				{
+					"ResolveLocation": 2,
+					"DataType": "short",
+					"ResolveLength": 1,
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "tPhaseVoltage"
+				},
+				{
+					"ResolveLocation": 3,
+					"ResolveLength": 1,
+					"DataType": "short",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "rPhaseCurrent"
+				},
+				{
+					"ResolveLocation": 4,
+					"ResolveLength":1,
+					"DataType": "short",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "sPhaseCurrent"
+				},
+				{
+					"ResolveLocation": 5,
+					"DataType": "short",
+					"ResolveLength": 1,
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "tPhaseCurrent"
+				},
+				{
+					"ResolveLocation": 6,
+					"DataType": "short",
+					"ResolveLength": 1,
+					"Endian": "Big-Endian",
+					"Multipler": 0.001,
+					"FieldName": "Factor"
+				},
+				{
+					"ResolveLocation": 7,
+					"DataType": "double",
+					"ResolveLength": 4,
+					"Endian": "Big-Endian",
+					"Multipler": 1,
+					"FieldName": "TotalkWh"
+				}
+			]
+		}
+	},
+	{
+		"DeviceLocation":"VCB-1",
+		"DeviceUniqueName": "VCBMeter",
+		"Description": "",
+		"DeviceInfo":{
+			"ModbusCommand":{
+				"deviceID": 2,
+				"functionCode": 4,
+				"registers": [
+					{
+						"address": 1032,
+						"count": 6
+					},
+					{
+						"address": 1040,
+						"count": 6
+					},
+					{
+						"address": 1082,
+						"count": 2
+					},
+					{
+						"address": 1182,
+						"count": 2
+					}
+				]
+			},
+			"parseInfo": [
+				{
+					"ResolveLocation": 0,
+					"ResolveLength": 2,
+					"DataType": "float",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "rPhaseVoltage"
+				},
+				{
+					"ResolveLocation": 2,
+					"ResolveLength": 2,
+					"DataType": "float",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "sPhaseVoltage"
+				},
+				{
+					"ResolveLocation": 4,
+					"ResolveLength": 2,
+					"DataType": "float",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "tPhaseVoltage"
+				},
+				{
+					"ResolveLocation": 6,
+					"ResolveLength": 2,
+					"DataType": "float",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "rPhaseCurrent"
+				},
+				{
+					"ResolveLocation": 8,
+					"ResolveLength": 2,
+					"DataType": "float",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "sPhaseCurrent"
+				},
+				{
+					"ResolveLocation": 10,
+					"ResolveLength": 2,
+					"DataType": "float",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "tPhaseCurrent"
+				},
+				{
+					"ResolveLocation": 12,
+					"ResolveLength": 2,
+					"DataType": "float",
+					"Endian": "Big-Endian",
+					"Multipler": 0.1,
+					"FieldName": "Factor"
+				},
+				{
+					"ResolveLocation": 14,
+					"ResolveLength": 2,
+					"DataType": "float",
+					"Endian": "Mid-Little-Endian",
+					"Multipler": 1,
+					"FieldName": "TotalkWh"
+				}
+			]
+		}
+	}
+]

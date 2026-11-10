@@ -1,0 +1,157 @@
+{% extends "testapp/base.html" %}
+
+{% block title %}即時數值顯示{% endblock %}
+
+{% block content %}
+<style>
+    @keyframes meter-shadow-pulse {
+        0%, 100% {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+        50% {
+            box-shadow: 0 0.75rem 1.5rem rgba(0, 120, 0, 0.28);
+        }
+    }
+
+    .meter-refresh {
+        animation: meter-shadow-pulse 1.2s ease-in-out;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .meter-refresh {
+            animation: none;
+        }
+    }
+</style>
+<main class="container-fluid w-100 py-4" style="min-height: 1080px; font-family: Arial, sans-serif;">
+    <header class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <h1 class="h2 mb-0">Meter Dashboard</h1>
+        <div class="text-body-secondary">
+            <span class="fw-semibold">Last updated:</span>
+            <time id="lastUpdateTime" datetime="{% now 'c' %}">{% now "Y-m-d H:i:s" %}</time>
+        </div>
+    </header>
+    <div id="meterCards" class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4"
+         aria-live="polite">
+        <div class="col-12 text-body-secondary">Loading meter data...</div>
+    </div>
+</main>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
+<script>
+    $(function () {
+        const fields = [
+            ["R-phase voltage", "rPhaseVoltage", " V"],
+            ["S-phase voltage", "sPhaseVoltage", " V"],
+            ["T-phase voltage", "tPhaseVoltage", " V"],
+            ["R-phase current", "rPhaseCurrent", " A"],
+            ["S-phase current", "sPhaseCurrent", " A"],
+            ["T-phase current", "tPhaseCurrent", " A"],
+            ["Power factor", "Factor", "", true],
+            ["Energy", "TotalkWh", " kWh"]
+        ];
+
+        function showMessage(message, className) {
+            $("#meterCards")
+                .empty()
+                .append($("<div>").addClass("col-12 " + className).text(message));
+        }
+
+        function renderMeters(records) {
+            if (!Array.isArray(records)) {
+                throw new Error("The meter data response is invalid.");
+            }
+
+            const latestByDevice = Object.create(null);
+            records.forEach(function (record) {
+                const timestamp = Number(record.Time);
+                if (typeof record.DeviceName !== "string" ||
+                    !Number.isFinite(timestamp)) {
+                    throw new Error("A meter record is missing its device name or timestamp.");
+                }
+
+                const current = latestByDevice[record.DeviceName];
+                if (!current || timestamp > Number(current.Time) ||
+                    (timestamp === Number(current.Time) && Number(record.id) > Number(current.id))) {
+                    latestByDevice[record.DeviceName] = record;
+                }
+            });
+
+            const devices = Object.keys(latestByDevice).sort();
+            const $cards = $("#meterCards").empty();
+            if (devices.length === 0) {
+                showMessage("No meter data is available.", "text-body-secondary");
+                return;
+            }
+
+            devices.forEach(function (deviceName) {
+                const record = latestByDevice[deviceName];
+                const $details = $("<dl>").addClass("row mb-0 p-3");
+
+                fields.forEach(function (field) {
+                    const value = Number(record[field[1]]);
+                    const displayValue = Number.isFinite(value)
+                        ? value.toFixed(2) + field[2]
+                        : "—";
+                    const $label = $("<dt>").addClass("col-7").text(field[0]);
+                    const $reading = $("<dd>").addClass("col-5 text-end").text(displayValue);
+                    if (field[3]) {
+                        $label.addClass("small");
+                        $reading.addClass("small");
+                    }
+                    $details.append($label, $reading);
+                });
+
+                const $title = $("<div>")
+                    .addClass("h5 card-title p-0 m-0 text-center")
+                    .css("background-color", "#DFFFDF")
+                    .text(deviceName);
+                const payloadTime = new Date(Number(record.Time) * 1000);
+                const $payloadTime = $("<div>")
+                    .addClass("small text-body-secondary px-3 pt-2")
+                    .append(document.createTextNode("\u6700\u5f8c\u66f4\u65b0\u6642\u9593: "));
+                $payloadTime.append(
+                    $("<time>")
+                        .attr("datetime", payloadTime.toISOString())
+                        .text(payloadTime.toLocaleString())
+                );
+                const $card = $("<section>")
+                    .addClass("card h-100 shadow-sm rounded-4 overflow-hidden meter-refresh")
+                    .append($("<div>").addClass("card-body p-0").append($title, $payloadTime, $details));
+                $cards.append($("<div>").addClass("col").append($card));
+            });
+        }
+
+        function refreshMeterData() {
+            $.ajax({
+                url: "{% url 'get_meter_data' %}",
+                method: "GET",
+                dataType: "json",
+                success: function (response) {
+                    try {
+                        renderMeters(response.data);
+                    } catch (error) {
+                        showMessage(error.message, "text-danger");
+                        return;
+                    }
+
+                    const updatedAt = new Date();
+                    $("#lastUpdateTime")
+                        .attr("datetime", updatedAt.toISOString())
+                        .text(updatedAt.toLocaleString());
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.error
+                        ? xhr.responseJSON.error
+                        : "Unable to load meter data.";
+                    showMessage(message, "text-danger");
+                }
+            });
+        }
+
+        refreshMeterData();
+        window.setInterval(refreshMeterData, 2 * 60 * 1000);
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,136 @@
+{% extends "testapp/base.html" %}
+
+{% block title %}首頁{% endblock %}
+
+{% block content %}
+<main class="container-fluid py-4" style="max-width: 1920px; min-height: 1080px; font-family: Arial, sans-serif;">
+    <h1 class="h2 mb-4">首頁</h1>
+    <!-- <section class="card shadow-sm rounded-4 mb-4" aria-labelledby="remaining-kwh-title">
+        <div class="card-body">
+            <h2 id="remaining-kwh-title" class="h4">剩餘用電量</h2>
+            <p id="remaining-kwh-value" class="display-6 mb-0" aria-live="polite">載入中...</p>
+            <p id="total-kwh-error" class="text-danger mb-0" role="alert"></p>
+        </div>
+    </section> -->
+    <section aria-labelledby="chart-title">
+        <h2 id="chart-title" class="h4">圖表分析</h2>
+        <div class="row align-items-center">
+            <div class="col-12 col-lg-8">
+                <div id="meter-chart" role="img" aria-label="整廠總用電量"
+                     style="width: 100%; height: 420px;"></div>
+            </div>
+            <div class="col-12 col-lg-4">
+                <section class="card shadow-sm rounded-4" aria-labelledby="total-kwh-title">
+                    <div class="card-body text-center">
+                        <h3 id="total-kwh-title" class="h5">總用電量</h3>
+                        <p id="total-kwh-value" class="display-6 mb-0" aria-live="polite">載入中...</p>
+                    </div>
+                    <div class="card-body text-center">
+                        <h3 id="remaining-kwh-title" class="h5">剩餘用電量</h3>
+                        <p id="remaining-kwh-value" class="display-6 mb-0" aria-live="polite">載入中...</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </section>
+</main>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
+<script>
+    window.addEventListener("DOMContentLoaded", function () {
+        const chartElement = document.getElementById("meter-chart");
+        const chart = echarts.init(chartElement);
+        const threshold = 1000;
+
+        function showTotal(total) {
+            $("#total-kwh-value").text(total.toLocaleString(undefined, {
+                maximumFractionDigits: 2
+            }) + " kWh");
+            $("#total-kwh-error").empty();
+
+            const usedWithinThreshold = Math.min(total, threshold);
+            const remaining = Math.max(threshold - total, 0);
+            const overThreshold = Math.max(total - threshold, 0);
+            $("#remaining-kwh-value").text(remaining.toLocaleString(undefined, {
+                maximumFractionDigits: 2
+            }) + " kWh");
+            const seriesData = [
+                { value: usedWithinThreshold, name: "用電量" },
+                { value: remaining, name: "剩餘額度" }
+            ];
+            if (overThreshold > 0) {
+                seriesData.push({ value: overThreshold, name: "超過門檻" });
+            }
+
+            chart.setOption({
+                title: {
+                    text: "1000 kWh 門檻",
+                    left: "center"
+                },
+                tooltip: {
+                    trigger: "item",
+                    formatter: "{b}: {c} kWh ({d}%)"
+                },
+                legend: {
+                    bottom: 0
+                },
+                series: [{
+                    type: "pie",
+                    radius: ["35%", "65%"],
+                    data: seriesData,
+                    emphasis: {
+                        itemStyle: {
+                            shadowBlur: 10,
+                            shadowOffsetX: 0,
+                            shadowColor: "rgba(0, 0, 0, 0.3)"
+                        }
+                    }
+                }]
+            });
+        }
+
+        chart.setOption({
+            title: {
+                text: "載入用電資料中...",
+                left: "center",
+                top: "middle"
+            }
+        });
+
+        $.ajax({
+            url: "{% url 'get_total_kwh' %}",
+            method: "GET",
+            dataType: "json",
+            success: function (response) {
+                const total = Number(response.TotalkWh);
+                if (!Number.isFinite(total) || total < 0) {
+                    $("#total-kwh-error").text("用電量資料格式無效。");
+                    $("#total-kwh-value").text("--");
+                    return;
+                }
+                showTotal(total);
+            },
+            error: function (xhr) {
+                const message = xhr.responseJSON && xhr.responseJSON.error
+                    ? xhr.responseJSON.error
+                    : "無法載入總用電量。";
+                $("#total-kwh-value").text("--");
+                $("#total-kwh-error").text(message);
+                chart.setOption({
+                    title: {
+                        text: "無法載入圖表資料",
+                        left: "center",
+                        top: "middle"
+                    },
+                    series: []
+                });
+            }
+        });
+
+        window.addEventListener("resize", function () {
+            chart.resize();
+        });
+    });
+</script>
+{% endblock %}

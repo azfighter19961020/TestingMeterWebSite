@@ -1,0 +1,265 @@
+{% extends "testapp/base.html" %}
+
+{% block title %}kWh區間顯示{% endblock %}
+
+{% block content %}
+<main class="container-fluid py-4" style="font-family: Arial, sans-serif;">
+    <h1 class="h2 mb-4">kWh區間顯示</h1>
+    <div class="row g-4">
+        <aside class="col-12 col-lg-3">
+            <section class="card shadow-sm rounded-4">
+                <div class="card-body">
+                    <h2 class="h5">查詢條件</h2>
+                    <form id="kwh-range-form">
+                        <fieldset class="mb-3">
+                            <legend class="form-label fs-6">設備</legend>
+                            <div id="device-tree" class="border rounded p-2"
+                                 role="tree" aria-live="polite">
+                                <span class="text-body-secondary">載入設備中...</span>
+                            </div>
+                        </fieldset>
+                        <div class="mb-3">
+                            <label for="start-time" class="form-label">開始日期</label>
+                            <input id="start-time" class="form-control" type="date" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="end-time" class="form-label">結束日期</label>
+                            <input id="end-time" class="form-control" type="date" required>
+                        </div>
+                        <button class="btn btn-primary w-100" type="submit">查詢</button>
+                    </form>
+                </div>
+            </section>
+        </aside>
+        <section class="col-12 col-lg-9" aria-labelledby="range-chart-title">
+            <div class="card shadow-sm rounded-4 h-100">
+                <div class="card-body">
+                    <h2 id="range-chart-title" class="h5">kWh 折線圖</h2>
+                    <p id="range-error" class="text-danger" role="alert"></p>
+                    <div id="lineChart" role="img" aria-label="依日期與設備顯示的 kWh 折線圖"
+                         style="width: 100%; height: 600px;"></div>
+                </div>
+            </div>
+        </section>
+    </div>
+</main>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
+<script>
+    $(function () {
+        const chart = echarts.init(document.getElementById("lineChart"));
+        let deviceListLoaded = false;
+
+        function showChartMessage(message) {
+            chart.clear();
+            chart.setOption({
+                title: {
+                    text: message,
+                    left: "center",
+                    top: "middle",
+                    textStyle: {
+                        color: "#6c757d",
+                        fontSize: 16,
+                        fontWeight: "normal"
+                    }
+                }
+            });
+        }
+
+        function loadDevices() {
+            $.ajax({
+                url: "{% url 'get_device_name' %}",
+                method: "GET",
+                dataType: "json",
+                success: function (response) {
+                    const $tree = $("#device-tree").empty();
+                    if (!Array.isArray(response.data)) {
+                        $tree.text("設備清單格式無效。");
+                        return;
+                    }
+                    deviceListLoaded = true;
+                    if (response.data.length === 0) {
+                        $tree.text("目前沒有設備資料。");
+                        return;
+                    }
+
+                    const $list = $("<ul>").addClass("list-unstyled mb-0");
+                    response.data.forEach(function (deviceName, index) {
+                        if (typeof deviceName !== "string") {
+                            return;
+                        }
+                        const inputId = "device-option-" + index;
+                        const $input = $("<input>")
+                            .attr({
+                                type: "checkbox",
+                                id: inputId,
+                                name: "devices",
+                                role: "treeitem"
+                            })
+                            .addClass("form-check-input device-option")
+                            .val(deviceName);
+                        const $label = $("<label>")
+                            .attr("for", inputId)
+                            .addClass("form-check-label text-break")
+                            .text(deviceName);
+                        $list.append(
+                            $("<li>").addClass("form-check").append($input, $label)
+                        );
+                    });
+                    $tree.append($list);
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.error
+                        ? xhr.responseJSON.error
+                        : "無法載入設備清單。";
+                    $("#device-tree").text(message);
+                    $("#range-error").text(message);
+                }
+            });
+        }
+
+        $("#kwh-range-form").on("submit", function (event) {
+            event.preventDefault();
+            $("#range-error").empty();
+
+            if (!deviceListLoaded) {
+                $("#range-error").text("設備清單尚未載入完成。");
+                return;
+            }
+
+            const devices = $(".device-option:checked").map(function () {
+                return $(this).val();
+            }).get();
+            if (devices.length === 0) {
+                $("#range-error").text("請至少選擇一個設備。");
+                return;
+            }
+
+            const startDate = $("#start-time").val();
+            const endDate = $("#end-time").val();
+            const startTime = new Date(startDate + "T00:00:00").getTime();
+            const endTime = new Date(endDate + "T23:59:59.999").getTime();
+            if (!startDate || !endDate ||
+                !Number.isFinite(startTime) || !Number.isFinite(endTime) ||
+                startTime > endTime) {
+                $("#range-error").text("請輸入有效的日期範圍。");
+                return;
+            }
+
+            showChartMessage("查詢中...");
+            const requests = devices.map(function (deviceName) {
+                return $.ajax({
+                    url: "{% url 'get_kwh_range_data' %}",
+                    method: "GET",
+                    dataType: "json",
+                    data: {
+                        DeviceName: deviceName,
+                        startTime: startTime,
+                        endTime: endTime
+                    }
+                });
+            });
+
+            Promise.all(requests.map(function (request) {
+                return request.then(function (response) {
+                    if (!Array.isArray(response.data)) {
+                        throw new Error("伺服器回傳的用電資料格式無效。");
+                    }
+                    return response.data;
+                });
+            })).then(function (results) {
+                const records = results.flat();
+                if (records.length === 0) {
+                    showChartMessage("查無符合資料。");
+                    return;
+                }
+
+                const timestamps = Array.from(new Set(
+                    records.map(function (record) {
+                        return Number(record.Time);
+                    }).filter(Number.isFinite)
+                )).sort(function (a, b) {
+                    return a - b;
+                });
+                if (timestamps.length === 0) {
+                    showChartMessage("查無有效時間資料。");
+                    return;
+                }
+
+                const selectedDevices = Array.from(new Set(
+                    records.map(function (record) {
+                        return record.DeviceName;
+                    })
+                )).sort();
+                const series = selectedDevices.map(function (deviceName) {
+                    const valuesByTime = new Map();
+                    records.forEach(function (record) {
+                        if (record.DeviceName === deviceName) {
+                            const timestamp = Number(record.Time);
+                            const value = Number(record.TotalkWh);
+                            if (Number.isFinite(timestamp) && Number.isFinite(value)) {
+                                valuesByTime.set(timestamp, value);
+                            }
+                        }
+                    });
+                    return {
+                        name: deviceName,
+                        type: "line",
+                        emphasis: { focus: "series" },
+                        connectNulls: false,
+                        data: timestamps.map(function (timestamp) {
+                            return [timestamp, valuesByTime.has(timestamp)
+                                ? valuesByTime.get(timestamp)
+                                : null];
+                        })
+                    };
+                });
+
+                chart.setOption({
+                    title: { text: "各設備 kWh 區間折線圖", left: "center" },
+                    tooltip: {
+                        trigger: "axis",
+                        valueFormatter: function (value) {
+                            return value === null ? "—" : value + " kWh";
+                        }
+                    },
+                    legend: { type: "scroll", top: 30 },
+                    grid: { left: 60, right: 24, bottom: 80, top: 80 },
+                    xAxis: {
+                        type: "time",
+                        name: "時間"
+                    },
+                    yAxis: {
+                        type: "value",
+                        name: "kWh"
+                    },
+                    dataZoom: [
+                        { type: "inside" },
+                        { type: "slider", bottom: 24 }
+                    ],
+                    series: series
+                }, true);
+            }).catch(function (error) {
+                const message = error.responseJSON && error.responseJSON.error
+                    ? error.responseJSON.error
+                    : error.message || "查詢 kWh 資料失敗。";
+                $("#range-error").text(message);
+                showChartMessage("無法載入圖表資料");
+            });
+        });
+
+        chart.setOption({
+            title: {
+                text: "請選擇設備與日期範圍",
+                left: "center",
+                top: "middle"
+            }
+        });
+        loadDevices();
+        window.addEventListener("resize", function () {
+            chart.resize();
+        });
+    });
+</script>
+{% endblock %}
