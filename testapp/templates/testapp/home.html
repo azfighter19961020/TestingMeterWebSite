@@ -43,11 +43,23 @@
         const chart = echarts.init(chartElement);
         const threshold = 1000;
 
+        function showMessage(text) {
+            // notMerge (true) so no earlier title/series leaks into this state.
+            chart.setOption({
+                title: { text: text, left: "center", top: "middle" }
+            }, true);
+        }
+
+        function showFailed() {
+            $("#total-kwh-value").text("載入失敗");
+            $("#remaining-kwh-value").text("載入失敗");
+            showMessage("載入失敗");
+        }
+
         function showTotal(total) {
             $("#total-kwh-value").text(total.toLocaleString(undefined, {
                 maximumFractionDigits: 2
             }) + " kWh");
-            $("#total-kwh-error").empty();
 
             const usedWithinThreshold = Math.min(total, threshold);
             const remaining = Math.max(threshold - total, 0);
@@ -65,8 +77,9 @@
 
             chart.setOption({
                 title: {
-                    text: "1000 kWh 門檻",
-                    left: "center"
+                    text: threshold.toLocaleString() + " kWh 門檻",
+                    left: "center",
+                    top: 0
                 },
                 tooltip: {
                     trigger: "item",
@@ -87,45 +100,25 @@
                         }
                     }
                 }]
-            });
+            }, true);
         }
 
-        chart.setOption({
-            title: {
-                text: "載入用電資料中...",
-                left: "center",
-                top: "middle"
-            }
-        });
+        showMessage("載入用電資料中...");
 
         $.ajax({
             url: "{% url 'get_total_kwh' %}",
             method: "GET",
             dataType: "json",
             success: function (response) {
-                const total = Number(response.TotalkWh);
-                if (!Number.isFinite(total) || total < 0) {
-                    $("#total-kwh-error").text("用電量資料格式無效。");
-                    $("#total-kwh-value").text("--");
+                // TotalkWh is null when there is no meter data.
+                const total = response ? response.TotalkWh : null;
+                if (typeof total !== "number" || !Number.isFinite(total) || total < 0) {
+                    showFailed();
                     return;
                 }
                 showTotal(total);
             },
-            error: function (xhr) {
-                const message = xhr.responseJSON && xhr.responseJSON.error
-                    ? xhr.responseJSON.error
-                    : "無法載入總用電量。";
-                $("#total-kwh-value").text("--");
-                $("#total-kwh-error").text(message);
-                chart.setOption({
-                    title: {
-                        text: "無法載入圖表資料",
-                        left: "center",
-                        top: "middle"
-                    },
-                    series: []
-                });
-            }
+            error: showFailed
         });
 
         window.addEventListener("resize", function () {

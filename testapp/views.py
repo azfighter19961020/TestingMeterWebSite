@@ -1,12 +1,15 @@
 import json
 import math
 
+from django.db.models import Max, OuterRef, Subquery, Sum
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import MeterData, User
+
+MAX_BIGINT = 2 ** 63 - 1  # upper bound of MeterData.Time (BigIntegerField)
 
 
 def home(request):
@@ -121,6 +124,8 @@ def addMeterData(request):
         return JsonResponse({'error': 'All meter data fields are required.'}, status=400)
     if isinstance(data['Time'], bool) or not isinstance(data['Time'], int):
         return JsonResponse({'error': 'Time must be an integer.'}, status=400)
+    if not 0 <= data['Time'] <= MAX_BIGINT:
+        return JsonResponse({'error': 'Time must be a non-negative Unix timestamp in milliseconds.'}, status=400)
     if not isinstance(data['DeviceName'], str) or not data['DeviceName']:
         return JsonResponse({'error': 'DeviceName must be a non-empty string.'}, status=400)
     if len(data['DeviceName']) > 25:
@@ -143,20 +148,112 @@ def addMeterData(request):
     return JsonResponse({'message': 'Meter data created.', 'id': meter_data.id}, status=201)
 
 
+METER_DATA_FIELDS = (
+    'id', 'Time', 'rPhaseVoltage', 'sPhaseVoltage', 'tPhaseVoltage',
+    'rPhaseCurrent', 'sPhaseCurrent', 'tPhaseCurrent', 'Factor',
+    'TotalkWh', 'DeviceName',
+)
+DEFAULT_PAGE_SIZE = 100
+MAX_PAGE_SIZE = 500
+
+
+def _optional_int(params, name, default=None):
+    """Parse an optional integer query parameter; returns (value, error_message)."""
+    raw = params.get(name, '').strip()
+    if raw == '':
+        return default, None
+    try:
+        return int(raw), None
+    except ValueError:
+        return None, f'{name} must be an integer.'
+
+
+def _latest_per_device(queryset):
+    """Narrow a MeterData queryset to the newest record (by Time, then id) of each device."""
+    newest_id = (
+        queryset.filter(DeviceName=OuterRef('DeviceName'))
+        .order_by('-Time', '-id')
+        .values('id')[:1]
+    )
+    return queryset.filter(id=Subquery(newest_id))
+
+
 @require_GET
 def getMeterData(request):
+    """
+    Query parameters (all optional):
+      DeviceName  exact device name (max 25 chars)
+      startTime   inclusive lower bound, Unix timestamp in milliseconds
+      endTime     inclusive upper bound, Unix timestamp in milliseconds
+      latest      "1" to return only the newest record per device
+      page        1-based page number (default 1)
+      pageSize    records per page (default 100, max 500)
+
+    Records are ordered newest first (or by DeviceName when latest=1).
+    Returned Time values are in seconds.
+    """
     if _logged_in_user(request) is None:
         return JsonResponse({'error': 'Authentication required.'}, status=401)
 
-    records = list(MeterData.objects.values(
-        'id', 'Time', 'rPhaseVoltage', 'sPhaseVoltage', 'tPhaseVoltage',
-        'rPhaseCurrent', 'sPhaseCurrent', 'tPhaseCurrent', 'Factor',
-        'TotalkWh', 'DeviceName',
-    ))
+    params = request.GET
+    device_name = params.get('DeviceName', '').strip()
+    if len(device_name) > 25:
+        return JsonResponse({'error': 'DeviceName must be at most 25 characters.'}, status=400)
+
+    start_time, error = _optional_int(params, 'startTime')
+    if error is None:
+        end_time, error = _optional_int(params, 'endTime')
+    if error is None:
+        page, error = _optional_int(params, 'page', 1)
+    if error is None:
+        page_size, error = _optional_int(params, 'pageSize', DEFAULT_PAGE_SIZE)
+    if error:
+        return JsonResponse({'error': error}, status=400)
+
+    if (start_time is not None and start_time < 0) or (end_time is not None and end_time < 0):
+        return JsonResponse({'error': 'Time range values cannot be negative.'}, status=400)
+    if start_time is not None and end_time is not None and start_time > end_time:
+        return JsonResponse({'error': 'startTime must be earlier than or equal to endTime.'}, status=400)
+    if page < 1:
+        return JsonResponse({'error': 'page must be at least 1.'}, status=400)
+    if not 1 <= page_size <= MAX_PAGE_SIZE:
+        return JsonResponse({'error': f'pageSize must be between 1 and {MAX_PAGE_SIZE}.'}, status=400)
+
+    latest = params.get('latest', '').strip().lower()
+    if latest not in ('', '0', '1', 'true', 'false'):
+        return JsonResponse({'error': 'latest must be 1 or 0.'}, status=400)
+    latest = latest in ('1', 'true')
+
+    filtered = MeterData.objects.all()
+    if device_name:
+        filtered = filtered.filter(DeviceName=device_name)
+    if start_time is not None:
+        filtered = filtered.filter(Time__gte=start_time)
+    if end_time is not None:
+        filtered = filtered.filter(Time__lte=end_time)
+
+    if latest:
+        queryset = _latest_per_device(filtered).order_by('DeviceName')
+    else:
+        queryset = filtered.order_by('-Time', '-id')
+
+    total = queryset.count()
+    total_pages = max(1, math.ceil(total / page_size))
+    offset = (page - 1) * page_size
+    # Skip the query past the last page: a huge OFFSET is invalid SQL.
+    records = [] if offset >= total else list(
+        queryset.values(*METER_DATA_FIELDS)[offset:offset + page_size]
+    )
     for record in records:
         record['Time'] /= 1000
 
-    return JsonResponse({'data': records})
+    return JsonResponse({
+        'data': records,
+        'page': page,
+        'pageSize': page_size,
+        'total': total,
+        'totalPages': total_pages,
+    })
 
 
 @require_GET
@@ -164,22 +261,18 @@ def getTotalkWh(request):
     if _logged_in_user(request) is None:
         return JsonResponse({'error': 'Authentication required.'}, status=401)
 
-    records = MeterData.objects.order_by('DeviceName', '-Time', '-id').values(
-        'DeviceName', 'Time', 'TotalkWh',
+    # TotalkWh is a cumulative meter reading, so the plant total is the sum of
+    # each device's newest reading (the same rows as getMeterData?latest=1).
+    totals = _latest_per_device(MeterData.objects.all()).aggregate(
+        latest_time=Max('Time'),
+        total_kwh=Sum('TotalkWh'),
     )
-    latest_by_device = {}
-    for record in records:
-        latest_by_device.setdefault(record['DeviceName'], record)
+    latest_time = totals['latest_time']
 
-    latest_time = max(
-        (record['Time'] for record in latest_by_device.values()),
-        default=None,
-    )
-    total_kwh = sum(record['TotalkWh'] for record in latest_by_device.values())
-
+    # Both are null when there is no meter data.
     return JsonResponse({
         'Time': latest_time / 1000 if latest_time is not None else None,
-        'TotalkWh': total_kwh,
+        'TotalkWh': totals['total_kwh'],
     })
 
 

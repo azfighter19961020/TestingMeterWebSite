@@ -63,30 +63,22 @@
                 throw new Error("The meter data response is invalid.");
             }
 
-            const latestByDevice = Object.create(null);
+            // The server (latest=1) returns one newest record per device, sorted by DeviceName.
             records.forEach(function (record) {
-                const timestamp = Number(record.Time);
                 if (typeof record.DeviceName !== "string" ||
-                    !Number.isFinite(timestamp)) {
+                    !Number.isFinite(Number(record.Time))) {
                     throw new Error("A meter record is missing its device name or timestamp.");
-                }
-
-                const current = latestByDevice[record.DeviceName];
-                if (!current || timestamp > Number(current.Time) ||
-                    (timestamp === Number(current.Time) && Number(record.id) > Number(current.id))) {
-                    latestByDevice[record.DeviceName] = record;
                 }
             });
 
-            const devices = Object.keys(latestByDevice).sort();
             const $cards = $("#meterCards").empty();
-            if (devices.length === 0) {
+            if (records.length === 0) {
                 showMessage("No meter data is available.", "text-body-secondary");
                 return;
             }
 
-            devices.forEach(function (deviceName) {
-                const record = latestByDevice[deviceName];
+            records.forEach(function (record) {
+                const deviceName = record.DeviceName;
                 const $details = $("<dl>").addClass("row mb-0 p-3");
 
                 fields.forEach(function (field) {
@@ -127,6 +119,7 @@
             $.ajax({
                 url: "{% url 'get_meter_data' %}",
                 method: "GET",
+                data: { latest: 1, pageSize: 500 },
                 dataType: "json",
                 success: function (response) {
                     try {
